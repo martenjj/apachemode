@@ -1,8 +1,10 @@
-;;; apache-mode.el --- major mode for editing Apache configuration files
+;;; Apache-mode.el --- major mode for editing Apache configuration files
 
-;; Keywords:	languages, faces
-;; Author:	Jonathan Marten  <jonathan.marten@uk.sun.com> or
-;; Last edit:	23-Oct-99        <jjm@keelhaul.demon.co.uk>
+;; Author:    Jonathan Marten  <jonathan.marten@uk.sun.com> or
+;; Author:    Kevin A. Burton  <burton@openprivacy.org>
+;; Keywords:    languages, faces
+;; Last edit:
+;; Version: 1.1
 
 ;; This file is an add-on for XEmacs or GNU Emacs (not tested with the latter).
 ;;
@@ -40,26 +42,46 @@
 ;;   (add-to-list 'auto-mode-alist '("access\\.conf$" . apache-mode))
 ;;
 
-;;; Change Log:
-;;
-;; Version 1.0, October 1999	First public release
+;;; History:
 
+;; V1.1 Peter S Galbraith <psg@debian.org>
+;;  - Don't force font-lock-mode in apache-mode.
+;;  - create customization defgroup and change `apache-mode-hook' to defcustom.
+;;  - add auto-mode-alist entries as autoloads.
+
+;; Fri Mar  2 17:53:40 2001 (burton@relativity.yi.org): added NameVirtualHost
+;; keyword.
+
+;; Thu Mar  1 20:16:02 2001 (burton@relativity.yi.org): added Order and Allow
+;; keywords.
+
+;; Thu Mar  1 20:07:37 2001 (burton@relativity.yi.org): tested under GNU Emacs
+;; 20.x and fixed font-lock support.
+
+;; Thu Mar  1 20:04:50 2001 (burton@relativity.yi.org): added AddCharset
+
+;; Version 1.0, October 1999    First public release
 
 ;;; Code:
 
 ;; Requires
 (require 'regexp-opt)
 
+(defgroup apache-mode nil
+  "Major mode for editing Apache configuration files."
+  :group 'programming)
+
+(defcustom apache-mode-hook nil
+  "*List of hook functions run by `apache-mode' (see `run-hooks')."
+  :type 'hook
+  :group 'apache-mode)
 
 ;; Variables
 (defvar apache-mode-map nil
-  "Keymap used in Apache config mode buffers")
+  "Keymap used in Apache config mode buffers.")
 
 (defvar apache-mode-syntax-table nil
-  "Apache config mode syntax table")
-
-(defvar apache-mode-hook nil
-  "*List of hook functions run by `apache-mode' (see `run-hooks')")
+  "Apache config mode syntax table.")
 
 
 ;; Font lock
@@ -67,22 +89,23 @@
   (purecopy
    (list
     (list "^\\s-*#.*$" 0 'font-lock-comment-face t)
-
+    
     (list (concat                                       ; sections
-	   "^\\s-*</?\\("
+           "^\\s-*</?\\("
            (regexp-opt '("Directory" "Files" "IfModule"
                          "Limit" "Location" "VirtualHost"))
            "\\)\\(>\\|\\s-\\)")
-	  1 'font-lock-function-name-face)
-
+          1 'font-lock-function-name-face)
+    
     (list (concat                                       ; keywords
-	   "^\\s-*\\("
+           "^\\s-*\\("
            (regexp-opt '("AccessConfig" "AccessFileName" "Action"
                          "AddAlt" "AddAltByEncoding" "AddAltByType"
-                         "AddDescription" "AddEncoding" "AddHandler"
-                         "AddIcon" "AddIconByEncoding" "AddIconByType"
-                         "AddLanguage" "AddModule" "AddType" "AgentLog"
-                         "Alias" "allow" "AllowOverride" "Anonymous"
+                         "AddCharset" "AddDescription" "AddEncoding"
+                         "AddHandler" "AddIcon" "AddIconByEncoding"
+                         "AddIconByType" "AddLanguage" "AddModule" "AddType"
+                         "AgentLog"
+                         "Alias" "allow" "Allow" "AllowOverride" "Anonymous"
                          "Anonymous_Authoritative" "Anonymous_LogEmail"
                          "Anonymous_MustGiveEmail" "Anonymous_NoUserID"
                          "Anonymous_VerifyEmail" "AuthAuthoritative"
@@ -106,8 +129,9 @@
                          "KeepAliveTimeout" "LanguagePriority" "Listen" "LoadFile"
                          "LoadModule" "LockFile" "LogFormat" "LogLevel" "MaxClients"
                          "MaxKeepAliveRequests" "MaxRequestsPerChild" "MaxSpareServers"
-                         "MetaDir" "MetaSuffix" "MimeMagicFile" "MinSpareServers"
-                         "NoCache" "order" "Options" "PassEnv" "PidFile" "Port"
+                         "MetaDir" "MetaSuffix" "MimeMagicFile"
+                         "MinSpareServers" "NameVirtualHost"
+                         "NoCache" "order" "Order" "Options" "PassEnv" "PidFile" "Port"
                          "ProxyBlock" "ProxyDomain" "ProxyPass" "ProxyRemote"
                          "ProxyRequests" "RLimitCPU" "RLimitMEM" "RLimitNPROC"
                          "ReadmeName" "Redirect" "RedirectPermanent" "RedirectTemp"
@@ -125,10 +149,10 @@
                          "TopSites" "TopURLs" "LastURLs" "HeadPrefix" "HeadSuffix"
                          "DocTitle" "DocTrailer" "HideURL" "HideSys"))
            "\\)\\s-")
-	  1 'font-lock-keyword-face)
+      1 'font-lock-keyword-face)
 
     (list (concat                                       ; values
-	   "\\(?:^\\|\\W\\)\\("
+       "\\(?:^\\|\\W\\)\\("
            (regexp-opt '("allow" "deny" "on" "valid-user" "inetd" "standalone"
                          "off" "user" "group" "any" "env" "mutual-failure" "full"
                          "email" "force-response-1.0" "downgrade-1.0" "nokeepalive"
@@ -143,7 +167,7 @@
                          "ExecCGI" "FollowSymLinks" "MultiViews" "IncludesNOEXEC"
                          "SymLinksIfOwnerMatch"))
            "\\)\\W")
-	  1 'font-lock-type-face)))
+      1 'font-lock-type-face)))
   "Expressions to highlight in Apache config buffers.")
 
 (put 'apache-mode 'font-lock-defaults '(apache-font-lock-keywords nil t
@@ -173,16 +197,26 @@
   (kill-all-local-variables)
   (use-local-map apache-mode-map)
   (set-syntax-table apache-mode-syntax-table)
+
   (make-local-variable 'comment-start)
   (setq comment-start "# ")
   (make-local-variable 'comment-start-skip)
   (setq comment-start-skip "#\\W*")
   (make-local-variable 'comment-column)
   (setq comment-column 48)
+
+  (set (make-local-variable 'font-lock-defaults)
+       '((apache-font-lock-keywords) t t))
+  
   (setq mode-name "Apache")
   (setq major-mode 'apache-mode)
+
   (run-hooks 'apache-mode-hook))
 
+;;;###autoload(add-to-list 'auto-mode-alist '("\\.htaccess$"   . apache-mode))
+;;;###autoload(add-to-list 'auto-mode-alist '("httpd\\.conf$"  . apache-mode))
+;;;###autoload(add-to-list 'auto-mode-alist '("srm\\.conf$"    . apache-mode))
+;;;###autoload(add-to-list 'auto-mode-alist '("access\\.conf$" . apache-mode))
 
 ;; Provides
 (provide 'apache-mode)
