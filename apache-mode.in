@@ -38,7 +38,7 @@
 ;;   Attempted to unify the (at least) three versions of this mode.
 ;;   Generate the lists of keywords from input CSV files for ease of
 ;;     updating and merging.
-;;   Generate autoloads for use if not built with Emacs.
+;;   Generate autoloads for use if not built/installed with Emacs.
 ;;
 ;; 2015-08-23                  David Maus <dmaus@ictsoc.de>
 ;;   Update list of directives for Apache 2.4
@@ -66,12 +66,29 @@
 ;;   Added apache-file-patterns to save having to hack auto-mode-alist,
 ;;     added autoloaded function to add apache-file-patterns to auto-mode-alist
 ;;
+;; Fri Mar 2 17:53:40 2001     Kevin A. Burton <burton@relativity.yi.org>
+;;   Added NameVirtualHost keyword.
+;;
+;; Thu Mar  1 20:16:02 2001    Kevin A. Burton <burton@relativity.yi.org>
+;;   Added Order and Allow keywords.
+;;
+;; Thu Mar  1 20:07:37 2001    Kevin A. Burton <burton@relativity.yi.org>
+;;   Tested under GNU Emacs 20.x and fixed font-lock support.
+;;
+;; Thu Mar  1 20:04:50 2001    Kevin A. Burton <burton@relativity.yi.org>
+;;   Added AddCharset
+;;
+;; (unknown date) V1.1         Peter S Galbraith <psg@debian.org>
+;;   Don't force font-lock-mode in apache-mode.
+;;   Create customization defgroup and change `apache-mode-hook' to defcustom.
+;;   Add auto-mode-alist entries as autoloads.
+;;
 ;; Version 1.0, October 1999   Jonathan Marten <jonathan.marten@uk.sun.com>
 ;;   First public release
 ;;
 
-
 ;;; Code:
+
 
 ;; Requires
 (require 'font-lock)
