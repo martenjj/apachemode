@@ -1,8 +1,7 @@
-;;; apache-mode.el --- major mode for Apache configuration files   -*- datetrack-update:nil -*-
+;;; apache-mode.el --- major mode for Apache configuration files   -*- mode:emacs-lisp -*-
 
 ;; Keywords:	languages, faces
-;; Author:	Jonathan Marten  <jonathan.marten@uk.sun.com> or
-;; Last edit:	12-May-2002      <rendhalver@xemacs.org>
+;; Author:	Jonathan Marten  <jonathan.marten@uk.sun.com>
 
 ;; This file is an add-on for XEmacs or GNU Emacs.
 ;;
@@ -17,48 +16,59 @@
 ;; General Public License for more details.
 ;;
 ;; You should have received a copy of the GNU General Public License
-;; along with your copy of Emacs; see the file COPYING.  If not, write
-;; to the Free Software Foundation, Inc., 59 Temple Place - Suite 330,
-;; Boston, MA 02111-1307, USA.
+;; along with your copy of Emacs; see the file COPYING.  If not,
+;; see <http://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 ;;
-;; There isn't really much to say.  The list of keywords was derived from
-;; the documentation for Apache 1.3; there may be some errors or omissions.
+;; There isn't really much to say.  The list of keywords was originally
+;; derived from the documentation for Apache 1.3 and 2.4; there may be
+;; some errors or omissions.
 ;;
 ;; There are currently no local keybindings defined, but the hooks are
 ;; there in the event that anyone gets around to adding any.
 ;;
-
-;; PB: hopefully this will no longer be needed :)
-;; no longer need to hack auto-mode-alist :)
-
-;; To enable automatic selection of this mode when appropriate files are
-;; visited, add the following to your favourite site or personal Emacs
-;; configuration file:
-;;
-;;   (autoload 'apache-mode "apache-mode" "autoloaded" t)
-;;   (add-to-list 'auto-mode-alist '("\\.htaccess$"   . apache-mode))
-;;   (add-to-list 'auto-mode-alist '("httpd\\.conf$"  . apache-mode))
-;;   (add-to-list 'auto-mode-alist '("srm\\.conf$"    . apache-mode))
-;;   (add-to-list 'auto-mode-alist '("access\\.conf$" . apache-mode))
-;;
+;; If this mode is not built and installed together with Emacs, then
+;; see the documentation of the `apache-set-file-patterns' function
+;; in order to make it available.
 
 ;;; Change Log:
 ;;
-;; Version 1.3, May 2002        updated keywords to include new directives in
-;;                              Apache 2
-;; Version 1.2.1, May 2002      separated apache directives into sections
-;;                              for easier updating
-;; Version 1.2, April 2002      Added mod_ssl 2.8.8, Apache-SSL 1.47 and
-;;                              mod_perl 1.26 keywords.
-;; Version 1.1, April 2002      changed var's to use customise
-;;                              updated the keywords to apache 1.3.24
-;;                              added apache-file-patterns to save having to hack
-;;                              auto-mode-alist, added autoloaded function to add
-;;                              apache-file-patterns to auto-mode-alist on autoload
+;; November 2016               Jonathan Marten <jjm@keelhaul.me.uk>
+;;   Attempted to unify the (at least) three versions of this mode.
+;;   Generate the lists of keywords from input CSV files for ease of
+;;     updating and merging.
+;;   Generate autoloads for use if not built with Emacs.
 ;;
-;; Version 1.0, October 1999	First public release
+;; 2015-08-23                  David Maus <dmaus@ictsoc.de>
+;;   Update list of directives for Apache 2.4
+;;
+;; 2005-06-29                  Kumar Appaiah <akumar_NOSPAM@ee.iitm.ac.in>
+;;   Use syntax table instead of font-lock-keywords to highlight comments.
+;;
+;; 2004-09-12                  Karl Chen <quarl@nospam.quarl.org>
+;;   Rewrote pretty much everything using define-derived-mode; added support
+;;   for Apache 2.x; fixed highlighting in GNU Emacs; created indentation
+;;   function
+;;
+;; Version 1.3, May 2002       Peter Brown <rendhalver@xemacs.org>
+;;   Updated keywords to include new directives in Apache 2
+;;
+;; Version 1.2.1, May 2002     Peter Brown <rendhalver@xemacs.org>
+;;   Separated Apache directives into sections for easier updating
+;;
+;; Version 1.2, April 2002     Peter Brown <rendhalver@xemacs.org>
+;;   Added mod_ssl 2.8.8, Apache-SSL 1.47 and mod_perl 1.26 keywords.
+;;
+;; Version 1.1, April 2002     Peter Brown <rendhalver@xemacs.org>
+;;   Changed variables to use customise
+;;   Updated the keywords to apache 1.3.24
+;;   Added apache-file-patterns to save having to hack auto-mode-alist,
+;;     added autoloaded function to add apache-file-patterns to auto-mode-alist
+;;
+;; Version 1.0, October 1999   Jonathan Marten <jonathan.marten@uk.sun.com>
+;;   First public release
+;;
 
 
 ;;; Code:
@@ -67,6 +77,7 @@
 (require 'font-lock)
 (require 'regexp-opt)
 (require 'custom)
+
 
 ;; Variables
 
@@ -84,7 +95,8 @@
 ;;;###autoload
 (defcustom apache-file-patterns
   (list "\\.htaccess\\(\\.default\\)?$" "httpd\\.conf\\(\\.default\\)?$"
-	"srm\\.conf\\(\\.default\\)?$" "access\\.conf\\(\\.default\\)?$")
+	"srm\\.conf\\(\\.default\\)?$" "access\\.conf\\(\\.default\\)?$"
+        "sites-\\(available\\|enabled\\)/")
   "*List of file patterns for which to automatically invoke `apache-mode'."
   :type '(repeat (regexp :tag "Pattern"))
   :group 'apache)
@@ -94,848 +106,56 @@
   :type 'hook
   :group 'apache)
 
+(defcustom apache-indent-level (default-value 'tab-width)
+  "*Number of spaces to indent per level"
+  :type 'integer
+  :group 'apache)
+
 (defvar apache-mode-map nil
   "Keymap used in `apache-mode' buffers.")
 
 (defvar apache-mode-syntax-table nil
-  "Syntax table for `apache-mode'.")
+  "Syntax table used in `apache-mode' buffers.")
+
+
+;; Keyword lists
+;;
+;; These are inserted by the build script from the input CSV files.
+;; They are kept as separate Lisp variable definitions from the
+;; font lock data, even though that may lead to more memory use,
+;; in order that they may be able to be used for other purposes
+;; (e.g. completion).
+
+;; @KEYWORDS@ apache-mode-sections sections.csv
+;; @KEYWORDS@ apache-mode-keywords keywords.csv
+;; @KEYWORDS@ apache-mode-values   values.csv
+
 
 ;; Font lock
 (defconst apache-font-lock-keywords
   (purecopy
    (list
-    (list "^\\s-*#.*$" 0 'font-lock-comment-face t)
+    ; syntax table is used for comment highlighting
+    ;(list "^\\s-*#.*$" 0 'font-lock-comment-face t)
 
     (list (concat                                       ; sections
 	   "^\\s-*</?\\("
-           (regexp-opt
-            '(
-              "Directory"                               ; core
-              "DirectoryMatch"
-              "Files"
-              "FilesMatch"
-              "IfDefine"
-              "IfModule"
-              "Limit"
-              "LimitExcept"
-              "Location"
-              "LocationMatch"
-              "VirtualHost"
-              "Perl"                                    ; mod_perl
-              ))
+           (regexp-opt apache-mode-sections)
            "\\)\\(>\\|\\s-\\)")
 	  1 'font-lock-function-name-face)
 
     (list (concat                                       ; keywords
 	   "^\\s-*\\("
-           (regexp-opt
-            (delete-duplicates
-             '(
-	       "AcceptFilter"                           ; core
-               "AcceptMutex"
-               "AccessConfig"
-               "AccessFileName"
-               "AddDefaultCharset"
-	       "AddModule"
-               "AllowOverride"
-               "AuthName"
-               "AuthType"
-               "BindAddress"
-	       "BS2000Account"
-               "ClearModuleList"
-               "ContentDigest"
-               "CoreDumpDirectory"
-	       "DefaultType"
-               "DocumentRoot"
-               "EBCDICConvert"
-               "EBCDICConvertByType"
-	       "EBCDICKludge"
-               "ErrorDocument"
-               "ErrorLog"
-               "FileETag"
-               "Group"
-	       "HostnameLookups"
-               "IdentityCheck"
-               "Include"
-               "KeepAlive"
-               "KeepAliveTimeout"
-	       "LimitRequestBody"
-               "LimitRequestFields"
-               "LimitRequestFieldsize"
-	       "LimitRequestLine"
-               "Listen"
-               "ListenBacklog"
-               "LockFile"
-               "LogLevel"
-	       "MaxClients"
-               "MaxKeepAliveRequests"
-               "MaxRequestsPerChild"
-               "MaxSpareServers"
-	       "MinSpareServers"
-               "NameVirtualHost"
-               "Options"
-               "PidFile"
-               "Port"
-               "Require"
-	       "ResourceConfig"
-               "RLimitCPU"
-               "RLimitMEM"
-               "RLimitNPROC"
-               "Satisfy"
-	       "ScoreBoardFile"
-               "ScriptInterpreterSource"
-               "SendBufferSize"
-               "ServerAdmin"
-	       "ServerAlias"
-               "ServerName"
-               "ServerPath"
-               "ServerRoot"
-               "ServerSignature"
-	       "ServerTokens"
-               "ServerType"
-               "StartServers"
-               "ThreadsPerChild"
-	       "ThreadStackSize"
-               "TimeOut"
-               "UseCanonicalName"
-               "User"
-	       "AcceptPathInfo"                         ; apache2 core directives
-               "ForceType"
-               "LimitXMLRequestBody"
-               "Require"
-	       "SetHandler"
-               "SetInputFilter"
-               "SetOutputFilter"
-	       "CoreDumpDirectory"                      ; apache2 mpm_common
-               "Group"
-               "Listen"
-               "ListenBackLog"
-               "LockFile"
-	       "MaxClients"
-               "MaxRequestsPerChild"
-               "MaxSpareThreads"
-	       "MaxThreadsPerChild"
-               "MinSpareThreads"
-               "NumServers"
-               "PidFile"
-	       "ScoreBoardFile"
-               "SendBufferSize"
-               "ServerLimit"
-               "StartServers"
-	       "StartThreads"
-               "ThreadLimit"
-               "ThreadsPerChild"
-               "User"
-	       "Listen"                                 ; mpm_netware
-               "ListenBacklog"
-               "MaxRequestsPerChild"
-               "MaxSpareThreads"
-	       "MaxThreads"
-               "MinSpareThreads"
-               "SendBufferSize"
-               "StartThreads"
-	       "ThreadStackSize"
-	       "CoreDumpDirectory"                      ; mpm_winnt
-               "Listen"
-               "ListenBacklog"
-	       "MaxRequestsPerChild"
-               "PidFile"
-               "SendBufferSize"
-               "ThreadsPerChild"
-	       "AssignUserId"                           ; mpm_perchild
-               "ChildPerUserId"
-               "CoreDumpDirectory"
-               "Group"
-	       "Listen"
-               "ListenBacklog"
-               "LockFile"
-               "MaxRequestsPerChild"
-	       "MaxSpareThreads"
-               "MaxThreadsPerChild"
-               "MinSpareThreads"
-	       "NumServers"
-               "PidFile"
-               "ScoreBoardFile"
-               "SendBufferSize"
-	       "StartThreads"
-               "User"
-	       "AcceptMutex"                            ; mpm_prefork
-               "CoreDumpDirectory"
-               "Listen"
-               "ListenBacklog"
-	       "LockFile"
-               "MaxRequestsPerChild"
-               "MaxSpareServers"
-	       "MaxSpareServers"
-               "MinSpareServers"
-               "MinSpareServers"
-	       "PidFile"
-               "ScoreBoardFile"
-               "SendBufferSize"
-	       "ServerLimit"
-               "StartServers"
-               "User"
-	       "CoreDumpDirectory"                      ; mpm_worker
-               "Group"
-               "Listen"
-               "ListenBacklog"
-	       "LockFile"
-               "MaxClients"
-               "MaxRequestsPerChild"
-	       "MaxSpareThreads"
-               "MinSpareThreads"
-               "PidFile"
-	       "ScoreBoardFile"
-               "SendBufferSize"
-               "ServerLimit"
-	       "StartServers"
-               "ThreadLimit"
-               "ThreadsPerChild"
-               "User"
-	       ;; Environment
-	       "PassEnv"                                ; mod_env
-               "SetEnv"
-               "UnsetEnv"
-	       "BrowserMatch"                           ; mod_setenvif
-               "BrowserMatchNoCase"
-               "SetEnvIf"
-               "SetEnvIfNoCase"
-	       ;; Content-Type decisions
-	       "AddCharset"                             ; mod_mime
-               "AddEncoding"
-               "AddHandler"
-               "AddLanguage"
-               "AddType"
-	       "DefaultLanguage"
-               "ForceType"
-               "RemoveEncoding"
-               "RemoveHandler"
-	       "RemoveType"
-               "SetHandler"
-               "TypesConfig"
-	       "AddInputFilter"                         ; apache2 mod_mime
-               "AddOutputFilter"
-               "MultiviewsMatch"
-	       "RemoveCharset"
-               "RemoveInputFilter"
-               "RemoveLanguage"
-	       "RemoveOutputFilter"
-	       "MimeMagicFile"                          ; mod_mime_magic
-	       "CacheNegotiatedDocs"                    ; mod_negotiation
-               "LanguagePriority"
-	       "ForceLangaugePriority"                  ; apache2 mod_negotiation
-	       ;; URL mapping
-	       "Alias"                                  ; mod_alias
-               "AliasMatch"
-               "Redirect"
-               "RedirectMatch"
-               "RedirectTemp"
-	       "RedirectPermanent"
-               "ScriptAlias"
-               "ScriptAliasMatch"
-	       "RewriteEngine"                          ; mod_rewrite
-               "RewriteOptions"
-               "RewriteLog"
-               "RewriteLogLevel"
-	       "RewriteLock"
-               "RewriteMap"
-               "RewriteBase"
-               "RewriteCond"
-               "RewriteRule"
-	       "UserDir"                                ; mod_userdir
-	       "CheckSpelling"                          ; mod_speling
-	       "VirtualDocumentRoot"                    ; mod_vhost_alias
-               "VirtualDocumentRootIP"
-               "VirtualScriptAlias"
-	       "VirtualScriptAliasIP"
-	       ;; Directory handling
-	       "DirectoryIndex"                         ; mod_dir
-	       "AddAlt"                                 ; mod_autoindex
-               "AddAltByEncoding"
-               "AddAltByType"
-               "AddDescription"
-               "AddIcon"
-	       "AddIconByEncoding"
-               "AddIconByType"
-               "DefaultIcon"
-               "FancyIndexing"
-	       "HeaderName"
-               "IndexIgnore"
-               "IndexOptions"
-               "IndexOrderDefault"
-               "ReadmeName"
-	       ;; Access control
-	       "Allow"                                  ; mod_access
-               "Deny"
-               "Order"
-	       "AuthGroupFile"                          ; mod_auth
-               "AuthUserFile"
-               "AuthAuthoritative"
-	       "AuthDBMGroupFile"                       ; mod_auth_dbm
-               "AuthDBMUserFile"
-               "AuthDBMAuthoritative"
-	       "AuthDBMType"                            ; apache2 mod_auth_dbm
-	       "AuthDBGroupFile"                        ; mod_auth_db
-               "AuthDBUserFile"
-               "AuthDBAuthoritative"
-	       "Anonymous"                              ; mod_auth_anon
-               "Anonymous_Authoritative"
-               "Anonymous_LogEmail"
-	       "Anonymous_MustGiveEmail"
-               "Anonymous_NoUserID"
-               "Anonymous_VerifyEmail"
-	       "AuthDigestFile"                         ; mod_auth_digest
-               "AuthDigestGroupFile"
-               "AuthDigestQop"
-	       "AuthDigestNonceLifetime"
-               "AuthDigestNonceFormat"
-               "AuthDigestNcCheck"
-	       "AuthDigestAlgorithm"
-               "AuthDigestDomain"
-	       "AuthDigestAlgorithm"                    ; apache2 mod_auth_digest
-               "AuthDigestNcCheck"
-               "AuthDigestNonceFormat"
-	       "AuthDigestNonceLifetime"
-	       "AuthDigestFile"                         ; mod_digest
-	       ;; HTTP responses
-	       "Header"                                 ; mod_headers
-	       "RequestHeader"                          ; apache2 mod_headers
-	       "MetaFiles"                              ; mod_cern_meta
-               "MetaDir"
-               "MetaSuffix"
-	       "ExpiresActive"                          ; mod_expires
-               "ExpiresByType"
-               "ExpiresDefault"
-	       ;; Dynamic content
-	       "XBitHack"                               ; mod_include
-	       "SSIEndTag"                              ; apache2 mod_include
-               "SSIErrorMsg"
-               "SSIStartTag"
-               "SSITimeFormat"
-	       "SSIUndefinedEcho"
-	       "ScriptLog"                              ; mod_cgi
-               "ScriptLogLength"
-               "ScriptLogBuffer"
-	       "Action"                                 ; mod_actions
-               "Script"
-	       "ISAPIReadAheadBuffer"                   ; mod_isapi WIN32 only
-               "ISAPILogNotSupported"
-               "ISAPIAppendLogToErrors"
-	       "ISAPIAppendLogToQuery"
-	       "ISAPIFileChache"                        ; apache2 mod_isapi
-	       ;; Internal content handlers
-	       "ExtendedStatus"                         ; mod_status
-	       "AddModuleInfo"                          ; mod_info
-	       ;; Logging
-	       "CookieLog"                              ; mod_log_config
-               "CustomLog"
-               "LogFormat"
-               "TransferLog"
-	       "AgentLog"                               ; mod_log_agent
-	       "RefererIgnore"                          ; mod_log_referer
-               "RefererLog"
-	       "CookieDomain"                           ; mod_usertrack
-               "CookieExpires"
-               "CookieName"
-               "CookieStyle"
-               "CookieTracking"
-	       ;; Miscellaneous
-	       "ImapMenu"                               ; mod_imap
-               "ImapDefault"
-               "ImapBase"
-	       "ProxyRequests"                          ; mod_proxy
-               "ProxyRemote"
-               "ProxyPass"
-               "ProxyPassReverse"
-               "ProxyBlock"
-	       "AllowCONNECT"
-               "ProxyReceiveBufferSize"
-               "ProxyIOBufferSize"
-               "NoProxy"
-	       "ProxyDomain"
-               "ProxyVia"
-               "CacheRoot"
-               "CacheSize"
-               "CacheMaxExpire"
-	       "CacheDefaultExpire"
-               "CacheLastModifiedFactor"
-               "CacheGcInterval"
-	       "CacheDirLevels"
-               "CacheDirLength"
-               "CacheForceCompletion"
-               "NoCache"
-	       "ProxyErrorOverride"                     ; apache2 mod_proxy
-               "ProxyMaxForwards"
-               "ProxyPreserveHost"
-	       "ProxyRemote"
-               "ProxyTimeout"
-	       "LoadFile"                               ; mod_so
-               "LoadModule"
-	       "MMapFile"                               ; mod_mmap_static
-	       ;; Development
-               "Example"                                ; mod_example
-	       ;; Obsolete directives
-	       "BrowserMatch"                           ; mod_browser
-               "BrowserMatchNoCase"
-	       "CookieLog"                              ; mod_cookies
-	       "LoadFile"                               ; mod_dld
-               "LoadModule"
-	       "TransferLog"                            ; mod_log_common
-	       ;; Other stuff that I don't know which mod they belong in
-	       "DefaultMode"
-               "HTTPLogFile"
-               "HTMLDir"
-               "PrivateDir"
-               "TopSites"
-               "TopURLs"
-               "LastURLs"
-               "HeadPrefix"
-               "HeadSuffix"
-               "DocTitle"
-               "DocTrailer"
-               "HideURL"
-               "HideSys"
-	       ;; Apache2 extra builtin modules
-	       "CharsetDefault"                         ; mod_charset_lite
-               "CharsetOptions"
-               "CharsetSourceEnc"
-	       "AuthLDAPAuthoritative"                  ; mod_auth_ldap
-               "AuthLDAPBindDN"
-               "AuthLDAPBindPassword"
-	       "AuthLDAPCompareDNOnServer"
-               "AuthLDAPDereferenceAliases"
-	       "AuthLDAPEnabled"
-               "AuthLDAPFrontPageHack"
-               "AuthLDAPGroupAttribute"
-	       "AuthLDAPGroupAttributeIsDN"
-               "AuthLDAPRemoteUserIsDN"
-	       "AuthLDAPStartTLS"
-               "AuthLDAPUrl"
-	       "ScriptLog"                              ; mod_cgid
-               "ScriptLogBuffer"
-               "ScriptLogLength"
-               "ScriptSock"
-	       "ExtFilterDefine"                        ; mod_ext_filter
-               "ExtFilterOptions"
-	       "SuexecUserGroup"                        ; mod_suexec
-	       "CacheFile"                              ; mod_file_cache
-               "MMapFile"
-	       "CacheDefaultExpire"                     ; mod_cache
-               "CacheDisable"
-               "CacheEnable"
-	       "CacheIgnoreCacheControl"
-               "CacheIgnoreNoLastMod"
-	       "CacheLastModifiedFactor"
-               "CacheMaxExpire"
-               "CacheOn"
-	       "Dav"                                    ; mod_dav
-               "DavDepthInfinity"
-               "DavLockDB"
-               "DavMinTimeout"
-	       "DeflateFilterNote"                      ; mod_deflate
-               "DeflateMemLevel"
-               "DeflateWindowSize"
-	       "SSLCACertificateFile"                   ; mod_ssl
-               "SSLCACertificatePath"
-               "SSLCARevocationFile"
-	       "SSLCARevocationPath"
-               "SSLCertificateChainFile"
-	       "SSLCertificateFile"
-               "SSLCertificateKeyFile"
-               "SSLCipherSuite"
-	       "SSLEngine"
-               "SSLLog"
-               "SSLLogLevel"
-               "SSLMutex"
-               "SSLOptions"
-	       "SSLPassPhraseDialog"
-               "SSLProtocol"
-               "SSLRandomSeed"
-	       "SSLRequire"
-               "SSLRequireSSL"
-               "SSLSessionCache"
-	       "SSLSessionCacheTimeout"
-               "SSLVerifyClient"
-               "SSLVerifyDepth"
-	       "LDAPCacheEntries"                       ; mod_ldap
-               "LDAPCacheTTL"
-               "LDAPCertDBPath"
-	       "LDAPOpCacheEntries"
-               "LDAPOpCacheTTL"
-               "LDAPSharedCacheSize"
-               ;; Non-builtin Apache modules
-               "SSLPassPhraseDialog"                    ; mod_ssl
-               "SSLMutex"
-               "SSLRandomSeed"
-               "SSLSessionCache"
-               "SSLSessionCacheTimeout"
-               "SSLEngine"
-               "SSLProtocol"
-               "SSLCipherSuite"
-               "SSLCertificateFile"
-               "SSLCertificateKeyFile"
-               "SSLCertificateChainFile"
-               "SSLCACertificatePath"
-               "SSLCACertificateFile"
-               "SSLCARevocationPath"
-               "SSLCARevocationFile"
-               "SSLVerifyClient"
-               "SSLVerifyDepth"
-               "SSLLog"
-               "SSLLogLevel"
-               "SSLOptions"
-               "SSLRequireSSL"
-               "SSLRequire"
-               "PerlAccessHandler"                      ; mod_perl 1 and 2
-               "PerlAddVar"
-               "PerlAuthenHandler"
-               "PerlAuthzHandler"
-               "PerlChildExitHandler"
-               "PerlChildInitHandler"
-               "PerlCleanupHandler"
-               "PerlFixupHandler"
-               "PerlHeaderParserHandler"
-               "PerlInitHandler"
-               "PerlLogHandler"
-               "PerlModule"
-               "PerlPassEnv"
-               "PerlPostReadRequestHandler"
-               "PerlRequire"
-               "PerlSetEnv"
-               "PerlSetVar"
-               "PerlTypeHandler"
-               "PerlDispatchHandler"                    ; mod_perl 1
-               "PerlFreshRestart"
-               "PerlHandler"
-               "PerlOpmask"
-               "PerlRestartHandler"
-               "PerlScript"
-               "PerlSendHeader"
-               "PerlSetupEnv"
-               "PerlTaintCheck"
-               "PerlTransHandler"
-               "PerlWarn"
-               "PerlLoadModule"                         ; mod_perl 2
-               "PerlOptions"
-               "PerlSwitches"
-               "PerlOpenLogsHandler"
-               "PerlPostConfigHandler"
-               "PerlPreConnectionHandler"
-               "PerlProcessConnectionHandler"
-               "PerlInputFilterHandler"
-               "PerlOutputFilterHandler"
-               "PerlSetInputFilter"
-               "PerlSetOutputFilter"
-               "PerlResponseHandler"
-               "PerlInterpStart"
-               "PerlInterpMax"
-               "PerlInterpMinSpare"
-               "PerlInterpMaxSpare"
-               "PerlInterpMaxRequests"
-               "PerlInterpScope"
-               "PerlTrace"
-               "PythonAccessHandler"                    ; mod_python
-               "PythonAuthenHandler"
-               "PythonAuthzHandler"
-               "PythonAutoReload"
-               "PythonCleanupHandler"
-               "PythonConnectionHandler"
-               "PythonDebug"
-               "PythonEnablePdb"
-               "PythonFixupHandler"
-               "PythonHandler"
-               "PythonHandlerModule"
-               "PythonHeaderParserHandler"
-               "PythonImport"
-               "PythonInitHandler"
-               "PythonInputFilter"
-               "PythonInterpPerDirective"
-               "PythonInterpPerDirectory"
-               "PythonInterpreter"
-               "PythonLogHandler"
-               "PythonOptimize"
-               "PythonOption"
-               "PythonOutputFilter"
-               "PythonPath"
-               "PythonPostReadRequestHandler"
-               "PythonTransHandler"
-               "PythonTypeHandler"
-               ;; Apache-SSL
-               "SSLBanCipher"
-               "SSLCACertificateFile"
-               "SSLCACertificatePath"
-               "SSLCacheServerPath"
-               "SSLCacheServerPort"
-               "SSLCacheServerRunDir"
-               "SSLCertificateFile"
-               "SSLCertificateKeyFile"
-               "SSLCheckClientDN"
-               "SSLDenySSL"
-               "SSLDisable"
-               "SSLEnable"
-               "SSLEngineID"
-               "SSLExportClientCertificates"
-               "SSLFakeBasicAuth"
-               "SSLKeyNoteTrustedAssertion"
-               "SSLKeyNoteTrustedIssuerTemplate"
-               "SSLNoCAList"
-               "SSLRandomFile"
-               "SSLRandomFilePerConnection"
-               "SSLRequireCipher"
-               "SSLRequireSSL"
-               "SSLRequiredCiphers"
-               "SSLSessionCacheTimeout"
-               "SSLVerifyClient"
-               "SSLVerifyDepth"
-
-               ) :test 'string=))
+           (regexp-opt apache-mode-keywords)
            "\\)\\>")
 	  1 'font-lock-keyword-face)
 
     (list (concat                                       ; values
 	   "\\<\\("
-           (regexp-opt
-            (delete-duplicates
-             '("allow"
-               "deny"
-               "on"
-               "valid-user"
-               "inetd"
-               "standalone"
-               "off"
-               "user"
-               "group"
-               "any"
-               "env"
-               "mutual-failure"
-               "full"
-               "email"
-               "force-response-1.0"
-               "downgrade-1.0"
-               "nokeepalive"
-               "permanent"
-               "temporary"
-               "seeother"
-               "gone"
-               "All"
-               "Options"
-               "FileInfo"
-               "AuthConfig"
-               "Limit"
-               "from"
-               "None"
-               "Basic"
-               "Digest"
-               "FancyIndexing"
-               "IconsAreLinks"
-               "ScanHTMLTitles"
-               "SuppressLastModified"
-               "SuppressSize"
-               "SuppressDescription"
-               "Minimal"
-               "OS"
-               "Full"
-               "set"
-               "append"
-               "add"
-               "unset"
-               "none"
-               "formatted"
-               "semi-formatted"
-               "unformatted"
-               "error"
-               "nocontent"
-               "map"
-               "referer"
-               "URL"
-               "inherit"
-               "double"
-               "GET"
-               "PUT"
-               "POST"
-               "DELETE"
-               "CONNECT"
-               "OPTIONS"
-               "Options"
-               "Indexes"
-               "Includes"
-               "ExecCGI"
-               "FollowSymLinks"
-               "MultiViews"
-               "IncludesNOEXEC"
-               "SymLinksIfOwnerMatch"
-               "uslock"
-               "pthread"
-               "sysvsem"
-               "fcntl"
-               "flock"
-               "os2sem"
-               "tpfcore"
-               "default"
-               "INode"
-               "MTime"
-               "builtin"                                ; mod_ssl
-               "exec"
-               "none"
-               "file"
-               "sem"
-               "egd"
-               "dbm"
-               "on"
-               "off"
-               "shm"
-               "shmht"
-               "shmcb"
-               "SSLv2"
-               "SSLv3"
-               "TLSv1"
-               "All"
-               "startup"
-               "connect"
-               "optional"
-               "require"
-               "optional_no_ca"
-               "ssl-unclean-shutdown"
-               "error"
-               "warn"
-               "info"
-               "trace"
-               "debug"
-               "StdEnvVars"
-               "CompatEnvVars"
-               "ExportCertData"
-               "FakeBasicAuth"
-               "StrictRequire"
-               "OptRenegotiate"
-               "ssl-accurate-shutdown"
-               "ssl-unclean-shutdown"
-               "kRSA"                                   ; cipher stuff
-               "kDHr"
-               "kDHd"
-               "kEDH"
-               "aNULL"
-               "aRSA"
-               "aDSS"
-               "aDH"
-               "eNULL"
-               "DES"
-               "3DES"
-               "RC4"
-               "RC2"
-               "IDEA"
-               "MD5"
-               "SHA1"
-               "SHA"
-               "EXP"
-               "EXPORT40"
-               "EXPORT56"
-               "LOW"
-               "MEDIUM"
-               "HIGH"
-               "RSA"
-               "DH"
-               "EDH"
-               "ADH"
-               "DSS"
-               "NULL"
-               "DES-CBC3-SHA"
-               "DES-CBC3-MD5"
-               "IDEA-CBC-SHA"
-               "RC4-SHA"
-               "RC4-MD5"
-               "IDEA-CBC-MD5"
-               "RC2-CBC-MD5"
-               "RC4-MD5"
-               "DES-CBC-SHA"
-               "RC4-64-MD5"
-               "DES-CBC-MD5"
-               "EXP-DES-CBC-SHA"
-               "EXP-RC2-CBC-MD5"
-               "EXP-RC4-MD5"
-               "EXP-RC2-CBC-MD5"
-               "EXP-RC4-MD5"
-               "NULL-SHA"
-               "NULL-MD5"
-               "ADH-DES-CBC3-SHA"
-               "ADH-DES-CBC-SHA"
-               "ADH-RC4-MD5"
-               "EDH-RSA-DES-CBC3-SHA"
-               "EDH-DSS-DES-CBC3-SHA"
-               "EDH-RSA-DES-CBC-SHA"
-               "EDH-DSS-DES-CBC-SHA"
-               "EXP-EDH-RSA-DES-CBC-SHA"
-               "EXP-EDH-DSS-DES-CBC-SHA"
-               "EXP-ADH-DES-CBC-SHA"
-               "EXP-ADH-RC4-MD5"
-               "file"                                   ; Apache-SSL
-               "egd"
-               "IDEA-CBC-SHA"                           ; cipher stuff
-               "NULL-MD5"
-               "NULL-SHA"
-               "EXP-RC4-MD5"
-               "RC4-MD5"
-               "RC4-SHA"
-               "EXP-RC2-CBC-MD5"
-               "IDEA-CBC-MD5"
-               "EXP-DES-CBC-SHA"
-               "DES-CBC-SHA"
-               "DES-CBC3-SHA"
-               "EXP-DH-DSS-DES-CBC-SHA"
-               "DH-DSS-DES-CBC-SHA"
-               "DH-DSS-DES-CBC3-SHA"
-               "EXP-DH-RSA-DES-CBC-SHA"
-               "DH-RSA-DES-CBC-SHA"
-               "DH-RSA-DES-CBC3-SHA"
-               "EXP-EDH-DSS-DES-CBC-SHA"
-               "EDH-DSS-DES-CBC-SHA"
-               "EDH-DSS-DES-CBC3-SHA"
-               "EXP-EDH-RSA-DES-CBC"
-               "EDH-RSA-DES-CBC-SHA"
-               "EDH-RSA-DES-CBC3-SHA"
-               "EXP-ADH-RC4-MD5"
-               "ADH-RC4-MD"
-               "EXP-ADH-DES-CBC-SHA"
-               "ADH-DES-CBC-SHA"
-               "ADH-DES-CBC3-SHA"
-               "FZA-NULL-SHA"
-               "FZA-FZA-CBC-SHA"
-               "FZA-RC4-SHA"
-               "DES-CFB-M1"
-               "RC2-CBC-MD5"
-               "DES-CBC-MD5"
-               "DES-CBC3-MD5"
-               "RC4-64-MD5"
-               "NULL"
-               "send-as-is"                             ; mod_asis
-               "cgi-script"                             ; mod_cgi
-               "imap-file"                              ; mod_imap
-               "server-info"                            ; mod_info
-               "isapi-isa"                              ; mod_isapi
-               "ldap-status"                            ; mod_ldap
-               "server-status"                          ; mod_status
-               "On"                                     ; mod_perl
-               "Off"
-               "perl-script"
-               "On"                                     ; mod_python
-               "Off"
-               "python-program"
-
-               ) :test 'string=))
+           (regexp-opt apache-mode-values)
            "\\)\\>")
 	  1 'font-lock-type-face)))
   "Expressions to highlight in `apache-mode' buffers.")
-
-;; Syntax table
-(if apache-mode-syntax-table
-    nil
-  (setq apache-mode-syntax-table (copy-syntax-table nil))
-  (modify-syntax-entry ?_   "_"     apache-mode-syntax-table)
-  (modify-syntax-entry ?-   "_"     apache-mode-syntax-table)
-  (modify-syntax-entry ?\(  "(\)"   apache-mode-syntax-table)
-  (modify-syntax-entry ?\)  ")\("   apache-mode-syntax-table)
-  (modify-syntax-entry ?\<  "(\>"   apache-mode-syntax-table)
-  (modify-syntax-entry ?\>  ")\<"   apache-mode-syntax-table)
-  (modify-syntax-entry ?\"   "\""   apache-mode-syntax-table))
 
 
 ;;;###autoload
@@ -955,7 +175,21 @@
   (make-local-variable 'font-lock-defaults)
   (setq font-lock-defaults '(apache-font-lock-keywords nil t
                                                        ((?_ . "w")
-                                                        (?- . "w"))))
+                                                        (?- . "w")
+                                                        (?/ . "w"))
+                                                       beginning-of-line))
+  (unless apache-mode-syntax-table
+    (setq apache-mode-syntax-table (copy-syntax-table nil))
+    (modify-syntax-entry ?_   "_"     apache-mode-syntax-table)
+    (modify-syntax-entry ?-   "_"     apache-mode-syntax-table)
+    (modify-syntax-entry ?\(  "(\)"   apache-mode-syntax-table)
+    (modify-syntax-entry ?\)  ")\("   apache-mode-syntax-table)
+    (modify-syntax-entry ?\<  "(\>"   apache-mode-syntax-table)
+    (modify-syntax-entry ?\>  ")\<"   apache-mode-syntax-table)
+    (modify-syntax-entry ?\"  "\""    apache-mode-syntax-table)
+    (modify-syntax-entry ?,   "."     apache-mode-syntax-table)
+    (modify-syntax-entry ?#   "<"     apache-mode-syntax-table)
+    (modify-syntax-entry ?\n  ">"     apache-mode-syntax-table))
   (set-syntax-table apache-mode-syntax-table)
 
   (make-local-variable 'comment-start)
@@ -964,7 +198,48 @@
   (setq comment-start-skip "#\\W*")
   (make-local-variable 'comment-column)
   (setq comment-column 48)
+  (make-local-variable 'indent-line-function)
+  (setq indent-line-function 'apache-indent-line)
+
   (run-hooks 'apache-mode-hook))
+
+
+;; Indentation
+(defun apache-indent-line ()
+   "Indent the current line of Apache code.
+Uses `apache-indent-level' to set the indentation spacing."
+   (interactive)
+   (let ((savep (> (current-column) (current-indentation)))
+	 (indent (max (apache-calculate-indentation) 0)))
+     (if savep
+	 (save-excursion (indent-line-to indent))
+       (indent-line-to indent))))
+
+(defun apache-previous-indentation ()
+  "Return the previous (non-empty/comment) indentation.
+Doesn't save position."
+  (let (indent)
+    (while (and (null indent)
+                (zerop (forward-line -1)))
+      (unless (looking-at "[ \t]*\\(#\\|$\\)")
+        (setq indent (current-indentation))))
+    (or indent 0)))
+
+(defun apache-calculate-indentation ()
+  "Return the amount the current line should be indented."
+  (save-excursion
+    (forward-line 0)
+    (if (bobp)
+        0
+      (let ((ends-section-p (looking-at "[ \t]*</"))
+            (indent (apache-previous-indentation)) ; moves point!
+            (previous-starts-section-p (looking-at "[ \t]*<[^/]")))
+        (if ends-section-p
+            (setq indent (- indent apache-indent-level)))
+        (if previous-starts-section-p
+            (setq indent (+ indent apache-indent-level)))
+        indent))))
+
 
 ;;;###autoload
 (defun apache-set-file-patterns ()
@@ -974,11 +249,9 @@ if its autoloads have not been automatically processed), then
 add the following to your init file (see `user-init-file'):
 
   (add-to-list 'load-path \"/directory/where/it/is/installed\")
-  (autoload 'apache-set-file-patterns \"apache-mode\")
-  (apache-set-file-patterns)
+  (load \"apache-mode-autoloads\")
 
 The file name patterns are taken from the variable `apache-file-patterns'."
-  (autoload 'apache-mode "apache-mode" "autoloaded" t)
   (mapcar (function (lambda (pat)
                       (add-to-list 'auto-mode-alist (cons pat 'apache-mode))))
           apache-file-patterns))
